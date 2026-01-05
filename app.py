@@ -14,8 +14,8 @@ st.set_page_config(page_title="Emotion Music Player", layout="wide", page_icon="
 # --- 1. Load Models & Data ---
 @st.cache_resource
 def load_emotion_models():
-    # Loading the specific filenames for MobileNet and LSTM
     try:
+        # Load your trained models
         img_model = load_model('emotion_model_mobilenet_deep_convergence_final.h5')
         audio_model = load_model('audio_emotion_lstm_model.h5')
         return img_model, audio_model
@@ -25,13 +25,14 @@ def load_emotion_models():
 
 @st.cache_data
 def load_music_data():
-    # Mock data structure - Replace with your music_data.csv path
     try:
+        # Attempt to load your music dataset
         df = pd.read_csv('music_data.csv')
     except:
+        # Fallback dataset if file is missing or corrupted
         df = pd.DataFrame({
-            'title': ["Upbeat Energy", "Midnight Blues", "Aggressive Rock", "Forest Peace", "Morning Chill", "Groovy Night"],
-            'tags': ["happy energetic upbeat", "sad lonely quiet", "angry loud intense", "neutral calm relax", "calm peaceful", "surprise pop groovy"]
+            'title': ["Lo-fi Study Beats", "Heavy Metal Thunder", "Happy Sunshine Pop", "Deep Melancholy"],
+            'tags': ["neutral calm lofi", "angry intense rock", "happy energetic upbeat", "sad lonely acoustic"]
         })
     return df
 
@@ -41,7 +42,6 @@ music_df = load_music_data()
 # --- 2. Prediction Logic ---
 
 def predict_image(img):
-    # Standard MobileNet preprocessing (224x224)
     img = img.resize((224, 224))
     img_array = tf.keras.preprocessing.image.img_to_array(img)
     img_array = np.expand_dims(img_array, axis=0) / 255.0
@@ -53,10 +53,9 @@ def predict_image(img):
     return "Neutral"
 
 def predict_audio(audio_file):
-    # Extract MFCC features for LSTM
     y, sr = librosa.load(audio_file, duration=3, offset=0.5)
     mfcc = np.mean(librosa.feature.mfcc(y=y, sr=sr, n_mfcc=40).T, axis=0)
-    mfcc = mfcc.reshape(1, 40, 1) # Match LSTM input shape (features, steps, 1)
+    mfcc = mfcc.reshape(1, 40, 1)
     
     if audio_model:
         preds = audio_model.predict(mfcc)
@@ -77,71 +76,60 @@ def get_music_recommendation(emotion):
     query = mapping.get(emotion, 'relax')
     
     tfidf = TfidfVectorizer()
-    tfidf_matrix = tfidf.fit_transform(music_df['tags'])
+    tfidf_matrix = tfidf.fit_transform(music_df['tags'].fillna(''))
     query_vec = tfidf.transform([query])
     sim = cosine_similarity(query_vec, tfidf_matrix).flatten()
     
+    # Get top 3 recommendations
     return music_df.iloc[sim.argsort()[-3:][::-1]]
 
 # --- 3. User Interface ---
 
 st.title("🎵 AI Emotion Music Player")
-st.markdown("Discover music based on your current mood using **Visual** or **Auditory** AI.")
+st.markdown("Discover music based on your current mood using Visual or Auditory AI.")
 
-tab1, tab2 = st.tabs(["📸 Visual Emotion (Image/Selfie)", "🎤 Auditory Emotion (Voice)"])
+tab1, tab2 = st.tabs(["📸 Visual Emotion", "🎤 Auditory Emotion"])
 
 detected_emotion = None
 
 with tab1:
     st.subheader("How are you looking today?")
-    
-    # Selection for input method
     input_method = st.radio("Choose input method:", ("Upload Image", "Take a Selfie"))
+    img_file = st.file_uploader("Choose a photo...", type=['jpg', 'jpeg', 'png']) if input_method == "Upload Image" else st.camera_input("Selfie")
     
-    img_file = None
-    if input_method == "Upload Image":
-        img_file = st.file_uploader("Choose a photo...", type=['jpg', 'jpeg', 'png'])
-    else:
-        img_file = st.camera_input("Smile for the camera!")
-
     if img_file:
         image = Image.open(img_file)
-        if st.button("Detect Emotion from Photo"):
-            with st.spinner("Analyzing facial expressions..."):
-                detected_emotion = predict_image(image)
-                st.success(f"Visual Emotion Detected: **{detected_emotion}**")
+        if st.button("Detect Mood"):
+            detected_emotion = predict_image(image)
+            st.info(f"Visual Emotion Detected: {detected_emotion}")
 
 with tab2:
-    st.subheader("How does your voice sound?")
-    audio_input = st.file_uploader("Upload a 3-second voice clip (WAV)", type=['wav'])
-    
+    st.subheader("How do you sound today?")
+    audio_input = st.file_uploader("Upload a 3-second voice clip (.wav)", type=['wav'])
     if audio_input:
         st.audio(audio_input)
-        if st.button("Detect Emotion from Voice"):
-            with st.spinner("Analyzing vocal frequencies..."):
-                detected_emotion = predict_audio(audio_input)
-                st.success(f"Vocal Emotion Detected: **{detected_emotion}**")
+        if st.button("Analyze Voice"):
+            detected_emotion = predict_audio(audio_input)
+            st.info(f"Audio Emotion Detected: {detected_emotion}")
 
 # --- 4. Recommendations ---
 
 if detected_emotion:
     st.divider()
-    st.header(f"🎧 Recommended Tracks for your {detected_emotion} Mood")
-    
+    st.subheader(f"🎧 Recommended Tracks for your {detected_emotion} Mood")
     recs = get_music_recommendation(detected_emotion)
     
     cols = st.columns(len(recs))
     for i, (idx, row) in enumerate(recs.iterrows()):
         with cols[i]:
+            
             st.markdown(f"""
-            <div style="padding:20px; border-radius:10px; background-color:#1e1e1e; border: 1px solid #333">
-                <h4>{row['title']}</h4>
-                <p style="color:#888; font-size:0.8em;">{row['tags']}</p>
-            </div>
-            """, unsafe_渊=True)
-            if st.button(f"Play Track {i+1}", key=f"play_{idx}"):
-                st.toast(f"Now playing: {row['title']}")
+<div style="padding:20px; border-radius:10px; background-color:#1e1e1e; border: 1px solid #333; min-height: 150px;">
+    <h4 style="color: #1DB954; margin-bottom: 5px;">{row['title']}</h4>
+    <p style="color:#888; font-size:0.85em;">Tags: {row['tags']}</p>
+</div>
+""", unsafe_allow_html=True)
 
-# Instructions if nothing is detected
-if not detected_emotion:
-    st.info("Upload an image or record audio to get personalized music recommendations.")
+            if st.button(f"Play Track", key=f"btn_{idx}"):
+                st.write(f"Now playing: {row['title']}...")
+
